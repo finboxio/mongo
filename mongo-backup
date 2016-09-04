@@ -9,18 +9,10 @@ MONGO_PASSWORD=${MONGO_PASSWORD:?"MONGO_PASSWORD must be set"}
 MONGO_HOST=${MONGO_HOST:?"MONGO_HOST must be set"}
 MONGO_PORT=${MONGO_PORT:-27017}
 BACKUP_NAME=${BACKUP_NAME:?"BACKUP_NAME must be set"}
-BACKUP_MAX_DAYS=${BACKUP_MAX_DAYS:-7}
-BACKUP_MIN_COUNT=${BACKUP_MIN_COUNT:-3}
 
 REGION=$(wget -qO- http://169.254.169.254/latest/dynamic/instance-identity/document | jq -r .region)
 AZ=$(wget -qO- http://169.254.169.254/latest/meta-data/placement/availability-zone)
 ID=$(wget -qO- http://169.254.169.254/latest/meta-data/instance-id)
-
-if [[ ! -e /var/run/convoy ]]; then
-  echo "backup only enabled when convoy is available"
-  sleep 30
-  exit 1
-fi
 
 primary=$(mongo $MONGO_HOST/admin --eval "rs.isMaster().primary" | tail -n +3)
 if [[ "$primary" == "$MONGO_HOST:$MONGO_PORT" ]]; then
@@ -52,7 +44,7 @@ mongo ${MONGO_HOST}:${MONGO_PORT}/admin -u ${MONGO_USER} -p${MONGO_PASSWORD} --e
 ## Wait for snapshot to complete
 SNAPSHOT_STATE=$(aws ec2 describe-snapshots --region $REGION --snapshot-id $SNAPSHOT_ID | jq -r '.Snapshots[] | .State')
 
-while [[ "$SNAPSHOT_STATE" != "completed" ]]; then
+while [[ "$SNAPSHOT_STATE" != "completed" ]]; do
   sleep 10
   echo "waiting for snapshot $SNAPSHOT_ID to complete..."
   SNAPSHOT_STATE=$(aws ec2 describe-snapshots --region $REGION --snapshot-id $SNAPSHOT_ID | jq -r '.Snapshots[] | .State')
@@ -60,3 +52,5 @@ done
 
 echo "Tagging snapshot"
 aws ec2 create-tags --region $REGION --resources $SNAPSHOT_ID --tags "Key=Name,Value=$BACKUP_NAME"
+
+exec mongo-verify-backup $SNAPSHOT_ID

@@ -2,7 +2,12 @@
 
 # Verifies the collections in a snapshot
 
+set -o pipefail
+
 SNAPSHOT_ID=$1
+
+BACKUP_MAX_DAYS=${BACKUP_MAX_DAYS:-7}
+BACKUP_MIN_COUNT=${BACKUP_MIN_COUNT:-3}
 
 REGION=$(wget -qO- http://169.254.169.254/latest/dynamic/instance-identity/document | jq -r .region)
 AZ=$(wget -qO- http://169.254.169.254/latest/meta-data/placement/availability-zone)
@@ -32,12 +37,12 @@ done
 echo ""
 
 mkdir -p /backup
-mount -t xfs -o noatime,nodiratime,noexec $ATTACHMENT_DEVICE /backup 2>/dev/null
+mount -t xfs -o noatime,nodiratime,noexec,nouuid /host/$VOLUME_DEVICE /backup 2>/dev/null
 
 mongod --port 48240 --dbpath /backup/data --auth &
 pid=$!
 
-sleep 10
+sleep 600
 cat <<EOF > /tmp/validate.js
   dbs = db.getMongo().getDBNames()
   valid = true
@@ -58,14 +63,15 @@ cat <<EOF > /tmp/validate.js
   print(valid)
 EOF
 
-BACKUP_MAX_AGE=$(date -d "-${BACKUP_MAX_DAYS}day" +%s)
 mongo localhost:48240/admin -u ${MONGO_USER} -p${MONGO_PASSWORD} /tmp/validate.js | tee -a /tmp/valid
+STATUS=$?
 INVALID=$(grep "is not valid" /tmp/valid)
-if [[ "$INVALID" != "" ]]; then
+if [[ "$INVALID" != "" || "$STATUS" != "0" ]]; then
   echo ":thumbsdown: MongoDB backup $BACKUP_NAME failed: $INVALID" | slack -p -a 'danger'
   aws ec2 delete-snapshot --region $REGION --snapshot-id $SNAPSHOT_ID
 else
   ## Clean up old snapshots
+  BACKUP_MAX_AGE=$(date -d "-${BACKUP_MAX_DAYS}day" +%s)
   aws ec2 describe-snapshots --region $REGION --filter "Name=volume-id,Values=$VOLUME_ID" \
     | jq -r ".Snapshots | sort_by(.StartTime) | reverse \
     | .[$BACKUP_MIN_COUNT:][] \
@@ -79,6 +85,8 @@ else
 fi
 
 kill -9 $pid
+
+sleep 30
 
 umount /backup
 attachment=$(aws ec2 detach-volume --region $REGION --volume-id $VOLUME_ID)
@@ -94,6 +102,6 @@ echo ""
 echo "Deleting backup volume $VOLUME_ID..."
 aws ec2 delete-volume --region $REGION --volume-id $VOLUME_ID
 
-if [[ "$INVALID" != "" ]]; then
+if [[ "$INVALID" != "" || "$STATUS" != "0" ]]; then
   exit 1
 fi
