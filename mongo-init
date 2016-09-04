@@ -65,7 +65,7 @@ fi
 
 mongo localhost:${MONGO_PORT}/admin /etc/mongo/init.js
 
-else
+elif [[ "$MONGO_REPLSET" == "" ]]; then
 # Initialize as a standalone
 if [[ ! -e /etc/mongo/init.js ]]; then
 MMS_USER=${MMS_USER}
