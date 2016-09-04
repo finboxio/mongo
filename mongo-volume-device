@@ -1,0 +1,18 @@
+#! /bin/bash
+
+# Returns the name of the device a volume is attached to
+# so that it can be mounted
+
+VOLUME_NAME=$1
+
+REGION=$(wget -qO- http://169.254.169.254/latest/dynamic/instance-identity/document | jq -r .region)
+AZ=$(wget -qO- http://169.254.169.254/latest/meta-data/placement/availability-zone)
+ID=$(wget -qO- http://169.254.169.254/latest/meta-data/instance-id)
+
+aws ec2 --region $REGION describe-volumes \
+  --filter Name=AvailabilityZone,Values=${AZ} \
+  --filter Name=tag:Name,Values=${VOLUME_NAME} \
+  | jq -r '.Volumes[] | (.Tags[]? | select(.Key == "Name") | .Value) + " " + (.Attachments[]? | .InstanceId + " " + .Device)' \
+  | grep $ID \
+  | sort \
+  | awk '{ print $3 }'

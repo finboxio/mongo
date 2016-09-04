@@ -1,0 +1,20 @@
+#! /bin/bash
+
+# Forces reelection until a particular mongo
+# server is primary
+
+MONGO_USER=${MONGO_USER:?"MONGO_USER must be set"}
+MONGO_PASSWORD=${MONGO_PASSWORD:?"MONGO_PASSWORD must be set"}
+MONGO_PRIMARY=${MONGO_PRIMARY:?"MONGO_PRIMARY must be set"}
+
+interval=10
+backoff=2
+max=3600
+primary=$(mongo $MONGO_PRIMARY/admin --eval "rs.isMaster().primary" | tail -n +3)
+while [[ "$primary" != "${MONGO_PRIMARY}" ]]; do
+  mongo $primary/admin -u ${MONGO_USER} -p${MONGO_PASSWORD} --eval "rs.stepDown(10);"
+  sleep $interval
+  primary=$(mongo $MONGO_PRIMARY/admin --eval "rs.isMaster().primary" | tail -n +3)
+  interval=$((interval * backoff))
+  if [[ $interval > $max ]]; then interval=$max; fi
+done

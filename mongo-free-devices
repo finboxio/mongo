@@ -1,0 +1,17 @@
+#! /bin/bash
+
+# Return a list of available devices for mounting EBS volumes
+
+if [[ -e "/dev/xvda1" ]]; then
+  base="/dev/xvd"
+else
+  base="/dev/sd"
+fi
+
+all="fghijklmnop"
+for num in $(seq 1 ${#all}); do
+  device=${all:$((num-1)):1}
+  if [[ ! -e "${base}${device}" ]]; then
+    echo "${base}${device}"
+  fi
+done

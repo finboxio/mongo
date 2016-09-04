@@ -1,0 +1,71 @@
+#! /bin/bash
+
+# Bootstraps the mongo server. Sets up volumes
+# and configures mongod options
+
+set -e
+
+MONGO_PORT=${MONGO_PORT:-27017}
+MONGO_DIR=${MONGO_DIR:?"MONGO_DIR must be set"}
+MONGO_STORAGE_ENGINE=${MONGO_STORAGE_ENGINE:-wiredTiger}
+
+if [[ "${DEBUG}" == "" ]]; then
+  QUIET="--quiet"
+fi
+
+if [[ "$EBS_VOLUME_NAME" != "" ]]; then
+  mongo-volume-setup
+fi
+
+mkdir -p /etc/mongo
+mkdir -p ${MONGO_DIR}/data &> /dev/null
+
+chown -R mongodb:mongodb ${MONGO_DIR}
+
+# Setup shared keyfile
+while [[ "$MONGO_REPLSET" != "" && ! -e /etc/mongo/keyfile ]]; do
+  MONGO_KEYFILE=${MONGO_KEYFILE:?"MONGO_KEYFILE must be set"}
+  protocol=${MONGO_KEYFILE:0:5}
+  if [[ "$protocol" == "s3://" ]]; then
+    aws s3 cp ${MONGO_KEYFILE} /etc/mongo/keyfile || true
+    if [[ "$MONGO_ROLE" == "primary" && ! -e /etc/mongo/keyfile ]]; then
+      openssl rand -base64 741 > /etc/mongo/keyfile
+      aws s3 cp /etc/mongo/keyfile ${MONGO_KEYFILE}
+    fi
+  else
+    cp ${MONGO_KEYFILE} /etc/mongo/keyfile || true
+    if [[ "$MONGO_ROLE" == "primary" && ! -e /etc/mongo/keyfile ]]; then
+      openssl rand -base64 741 > /etc/mongo/keyfile
+      cp /etc/mongo/keyfile ${MONGO_KEYFILE}
+    fi
+  fi
+
+  chown -R mongodb:mongodb /etc/mongo/keyfile || true
+  chmod 600 /etc/mongo/keyfile || true
+  sleep 5
+done
+
+# Start init process to setup default accounts
+mongo-init &
+
+if [[ "$MONGO_REPLSET" != "" ]]; then
+  ARBITER_OPTS=
+  if [[ "$MONGO_ROLE" == "arbiter" ]]; then
+    ARBITER_OPTS="--nojournal --smallfiles"
+  fi
+  exec gosu mongodb mongod \
+    --storageEngine ${MONGO_STORAGE_ENGINE} \
+    --dbpath ${MONGO_DIR}/data \
+    --port ${MONGO_PORT} \
+    --auth \
+    --replSet ${MONGO_REPLSET} \
+    --keyFile /etc/mongo/keyfile \
+    ${QUIET} \
+    ${ARBITER_OPTS}
+else
+  exec gosu mongodb mongod \
+    --storageEngine ${MONGO_STORAGE_ENGINE} \
+    --dbpath ${MONGO_DIR}/data \
+    --port ${MONGO_PORT} \
+    --auth ${QUIET}
+fi
