@@ -1,4 +1,9 @@
 
+0.0.5 / 2016-09-16
+==================
+
+  * skip backup verification by default. consumes lots of memory and should be run on its own host.
+
 0.0.4 / 2016-09-04
 ==================
 
