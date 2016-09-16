@@ -55,7 +55,7 @@ aws ec2 create-tags --region $REGION --resources $SNAPSHOT_ID --tags "Key=Name,V
 
 echo ":ok_hand: MongoDB backup $BACKUP_NAME completed" | slack -p -a 'good'
 
-if [[ "${BACKUP_VERIFY}" == "true" ]]; then
+if [[ "${BACKUP_VERIFY}" != "true" ]]; then
   echo ":warning: Skipped verification of MongoDB backup $BACKUP_NAME ($SNAPSHOT_ID)" | slack -p -a 'warning'
 else
   exec mongo-verify-backup $SNAPSHOT_ID
