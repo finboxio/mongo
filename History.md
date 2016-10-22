@@ -1,4 +1,11 @@
 
+1.0.0 / 2016-10-22
+==================
+
+  * remove aws/backup scripts (belong in a different image)
+  * support preloading json files and readonly dbs
+  * add tests
+
 0.0.7 / 2016-09-16
 ==================
 
