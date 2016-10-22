@@ -1,0 +1,40 @@
+version: '2'
+services:
+  mongo:
+    hostname: mongo
+    volumes:
+      - .:/opt/mongo-conf/test
+    environment:
+      MONGO_REPLSET: rs
+      MONGO_ROLE: primary
+      MONGO_DATABASE: rs
+  mongo_secondary:
+    build:
+      context: ..
+    networks:
+      - mongo-test-net
+    hostname: mongo_secondary
+    volumes:
+      - .:/opt/mongo-conf/test
+    links:
+      - mongo
+    environment:
+      MONGO_REPLSET: rs
+      MONGO_ROLE: secondary
+      MONGO_PRIMARY: mongo
+      MONGO_DATABASE: rs
+  mongo_arbiter:
+    build:
+      context: ..
+    networks:
+      - mongo-test-net
+    hostname: mongo_arbiter
+    volumes:
+      - .:/opt/mongo-conf/test
+    links:
+      - mongo
+    environment:
+      MONGO_REPLSET: rs
+      MONGO_ROLE: arbiter
+      MONGO_PRIMARY: mongo
+      MONGO_DATABASE: rs

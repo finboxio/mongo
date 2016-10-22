@@ -1,0 +1,55 @@
+version: '2'
+volumes:
+  mongokey:
+    driver: local
+services:
+  mongo:
+    hostname: mongo
+    volumes:
+      - mongokey:/keyfile
+      - .:/opt/mongo-conf/test
+    environment:
+      MONGO_REPLSET: rs
+      MONGO_USER: auth
+      MONGO_PASSWORD: auth
+      MONGO_KEYFILE: /keyfile/mongo.key
+      MONGO_ROLE: primary
+      MONGO_DATABASE: rs
+  mongo_secondary:
+    build:
+      context: ..
+    networks:
+      - mongo-test-net
+    hostname: mongo_secondary
+    links:
+      - mongo
+    volumes:
+      - mongokey:/keyfile
+      - .:/opt/mongo-conf/test
+    environment:
+      MONGO_REPLSET: rs
+      MONGO_USER: auth
+      MONGO_PASSWORD: auth
+      MONGO_KEYFILE: /keyfile/mongo.key
+      MONGO_ROLE: secondary
+      MONGO_PRIMARY: mongo
+      MONGO_DATABASE: rs
+  mongo_arbiter:
+    build:
+      context: ..
+    networks:
+      - mongo-test-net
+    hostname: mongo_arbiter
+    links:
+      - mongo
+    volumes:
+      - mongokey:/keyfile
+      - .:/opt/mongo-conf/test
+    environment:
+      MONGO_REPLSET: rs
+      MONGO_USER: auth
+      MONGO_PASSWORD: auth
+      MONGO_KEYFILE: /keyfile/mongo.key
+      MONGO_ROLE: arbiter
+      MONGO_PRIMARY: mongo
+      MONGO_DATABASE: rs

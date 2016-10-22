@@ -1,0 +1,14 @@
+version: '2'
+services:
+  mongo:
+    environment:
+      MONGO_DATABASE: preload
+      MONGO_PRELOAD_DIR: /preload
+      MONGO_DIR: /mongo
+    volumes_from:
+      - mongo-preload
+  mongo-preload:
+    image: busybox
+    volumes:
+      - ./siblings.json:/preload/json/siblings.json
+      - ./siblings-gz.json.gz:/preload/gz/siblings-gz.json.gz

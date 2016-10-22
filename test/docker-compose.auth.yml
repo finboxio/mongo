@@ -1,0 +1,8 @@
+version: '2'
+services:
+  mongo:
+    environment:
+      MONGO_DATABASE: auth
+      MONGO_USER: auth
+      MONGO_PASSWORD: auth
+      MONGO_DIR: /mongo

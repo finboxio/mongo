@@ -1,0 +1,211 @@
+#! /bin/bash
+
+# Sets up the mongo database with the given user
+# and password. Adds replicaSet members if specified,
+# and adds MMS monitoring credentials if specified
+
+MONGO_PORT=${MONGO_PORT:-27017}
+MONGO_SETUP_PORT=$((MONGO_PORT + 1))
+MONGO_STORAGE_ENGINE=${MONGO_STORAGE_ENGINE:-wiredTiger}
+MONGO_DIR=${MONGO_DIR:-/mongo}
+
+MONGO_USER=${MONGO_USER}
+MONGO_PASSWORD=${MONGO_PASSWORD}
+MONGO_DATABASE=${MONGO_DATABASE:-test}
+MONGO_READONLY=${MONGO_READONLY:-false}
+
+MMS_USER=${MMS_USER}
+MMS_PASSWORD=${MMS_PASSWORD}
+
+MONGO_REPLSET=${MONGO_REPLSET}
+MONGO_KEYFILE=${MONGO_KEYFILE}
+MONGO_ROLE=${MONGO_ROLE}
+MONGO_PRIMARY=${MONGO_PRIMARY}
+
+MONGO_PRELOAD_DIR=${MONGO_PRELOAD_DIR}
+
+if [[ "${MONGO_USER}" != "" && "${MONGO_PASSWORD}" != "" && ("${MONGO_READONLY}" == "true" || "${MONGO_READONLY}" == "yes" || "${MONGO_READONLY}" == "1" || "${MONGO_READONLY}" == "TRUE" || "${MONGO_READONLY}" == "YES") ]]; then
+	MONGO_READONLY="true"
+	MONGO_ADMIN_USER=$(openssl rand -base64 32)
+	MONGO_ADMIN_PASSWORD=$(openssl rand -base64 32)
+else
+	MONGO_ADMIN_USER=${MONGO_USER}
+	MONGO_ADMIN_PASSWORD=${MONGO_PASSWORD}
+fi
+
+###
+# Startup mongo in background
+##
+
+MONGO_OPTIONS="--storageEngine ${MONGO_STORAGE_ENGINE} --dbpath ${MONGO_DIR}/data --port ${MONGO_SETUP_PORT}"
+
+if [[ "${MONGO_REPLSET}" != "" ]]; then
+	MONGO_OPTIONS="${MONGO_OPTIONS} --replSet ${MONGO_REPLSET}"
+fi
+
+if [[ "${MONGO_USER}" != "" && "${MONGO_PASSWORD}" != "" ]]; then
+	MONGO_OPTIONS="${MONGO_OPTIONS} --auth"
+	MONGO_AUTH_OPTIONS="-u ${MONGO_ADMIN_USER} -p ${MONGO_ADMIN_PASSWORD}"
+fi
+
+if [[ "${MONGO_REPLSET}" != "" && "${MONGO_KEYFILE}" != "" ]]; then
+	MONGO_OPTIONS="${MONGO_OPTIONS} --keyFile /etc/mongo-conf/mongo.key"
+fi
+
+gosu mongodb mongod ${MONGO_OPTIONS} &
+MONGO_PID=$!
+
+while ! mongo localhost:${MONGO_SETUP_PORT}/admin --eval 'printjson({ "hi": "bye" })' &>/dev/null; do
+	echo "Waiting for mongo to come online..."
+	sleep 2
+done
+echo " ✓ mongo is running"
+
+if [[ "${MONGO_ROLE}" == "primary" ]]; then
+	###
+	# Initialize as a replica set. Set priority to ensure primary status
+	###
+	cat <<-INIT > /etc/mongo-conf/init.js
+		code = rs.status().code
+		if (code == 94) {
+			rs.initiate();
+			while (!db.isMaster().ismaster) { sleep(2000) }
+
+			if ("${MONGO_USER}" !== "" && "${MONGO_PASSWORD}" != "") {
+				db.createUser({
+					"user": "${MONGO_ADMIN_USER}",
+					"pwd": "${MONGO_ADMIN_PASSWORD}",
+					"roles": [
+						{ "role": "root", "db": "admin" }
+					]
+				});
+
+				db.auth("${MONGO_ADMIN_USER}", "${MONGO_ADMIN_PASSWORD}");
+
+				if ("${MONGO_ADMIN_USER}" !== "${MONGO_USER}") {
+					db.createUser({
+						"user": "${MONGO_USER}",
+						"pwd": "${MONGO_PASSWORD}",
+						"roles": [
+							{ "role": "clusterAdmin", "db": "admin" }
+						]
+					});
+				}
+			}
+
+			if ("${MMS_USER}" !== "") {
+				db.createUser({
+					"user": "${MMS_USER}",
+					"pwd": "${MMS_PASSWORD}",
+					"roles": [
+						{ "role": "clusterMonitor", "db": "admin" }
+					]
+				});
+			}
+
+			if ("${MONGO_USER}" !== "" && "${MONGO_PASSWORD}" !== "") {
+				role = "${MONGO_READONLY}" === "true" ? "read" : "dbOwner"
+				db.grantRolesToUser('${MONGO_USER}', [ { role: role, db: "${MONGO_DATABASE}" } ])
+				db = db.getSiblingDB('${MONGO_DATABASE}')
+				db.createUser({
+					"user": "${MONGO_USER}",
+					"pwd": "${MONGO_PASSWORD}",
+					"roles": [
+						{ "role": role, "db": "${MONGO_DATABASE}" }
+					]
+				});
+			}
+		}
+	INIT
+
+	echo "initializing mongodb replica set..."
+	mongo localhost:${MONGO_SETUP_PORT}/admin /etc/mongo-conf/init.js
+	echo " ✓ finished initializing mongodb replica set"
+elif [[ "${MONGO_REPLSET}" == "" ]]; then
+	###
+	# Initialize as a standalone
+	###
+	cat <<-INIT > /etc/mongo-conf/init.js
+		if ("${MONGO_USER}" !== "" && "${MONGO_PASSWORD}" != "") {
+			db.createUser({
+				"user": "${MONGO_ADMIN_USER}",
+				"pwd": "${MONGO_ADMIN_PASSWORD}",
+				"roles": [
+					{ "role": "root", "db": "admin" }
+				]
+			});
+
+			db.auth("${MONGO_ADMIN_USER}", "${MONGO_ADMIN_PASSWORD}");
+
+			if ("${MONGO_ADMIN_USER}" !== "${MONGO_USER}") {
+				db.createUser({
+					"user": "${MONGO_USER}",
+					"pwd": "${MONGO_PASSWORD}",
+					"roles": [
+						{ "role": "clusterAdmin", "db": "admin" }
+					]
+				});
+			}
+		}
+
+		if ("${MMS_USER}" !== "") {
+			db.createUser({
+				"user": "${MMS_USER}",
+				"pwd": "${MMS_PASSWORD}",
+				"roles": [
+					{ "role": "clusterMonitor", "db": "admin" }
+				]
+			});
+		}
+
+		if ("${MONGO_USER}" !== "" && "${MONGO_PASSWORD}" !== "") {
+			role = "${MONGO_READONLY}" === "true" ? "read" : "dbOwner"
+			db.grantRolesToUser('${MONGO_USER}', [ { role: role, db: "${MONGO_DATABASE}" } ])
+			db = db.getSiblingDB('${MONGO_DATABASE}')
+			db.createUser({
+				"user": "${MONGO_USER}",
+				"pwd": "${MONGO_PASSWORD}",
+				"roles": [
+					{ "role": role, "db": "${MONGO_DATABASE}" }
+				]
+			});
+		}
+	INIT
+
+	echo "initializing standalone mongodb..."
+	mongo localhost:${MONGO_SETUP_PORT}/admin /etc/mongo-conf/init.js
+	echo " ✓ finished initializing standalone mongodb"
+fi
+
+###
+# Load preload docs
+###
+
+if [[ "${MONGO_PRELOAD_DIR}" != "" && ("${MONGO_ROLE}" == "primary" || "${MONGO_REPLSET}" == "") ]]; then
+	echo "preloading docs from ${MONGO_PRELOAD_DIR}"
+	find ${MONGO_PRELOAD_DIR} -name '*.json' -or -name '*.json.gz' | xargs -n1 mongo-preload "${MONGO_ADMIN_USER:- }" "${MONGO_ADMIN_PASSWORD:- }"
+fi
+
+###
+# Prepare rs member for port switch
+###
+if [[ "${MONGO_ROLE}" == "primary" ]]; then
+	cat <<-INIT > /etc/mongo-conf/port.js
+		cfg = rs.conf();
+		cfg.members[0].priority = 0;
+		cfg.members[0].votes = 0;
+		cfg.members.push({ _id: 1, host: cfg.members[0].host.replace("${MONGO_SETUP_PORT}", "${MONGO_PORT}"), priority: 2 });
+		rs.reconfig(cfg, { force: true });
+	INIT
+
+	echo "migrating replica set port..."
+	mongo localhost:${MONGO_SETUP_PORT}/admin ${MONGO_AUTH_OPTIONS} /etc/mongo-conf/port.js
+	echo " ✓ finished migrating replica set port"
+fi
+
+###
+# Stop setup mongodb instance
+###
+
+kill -TERM ${MONGO_PID}
+wait

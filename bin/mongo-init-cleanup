@@ -1,0 +1,76 @@
+#! /bin/bash
+
+# Sets up the mongo database with the given user
+# and password. Adds replicaSet members if specified,
+# and adds MMS monitoring credentials if specified
+
+MONGO_PORT=${MONGO_PORT:-27017}
+MONGO_SETUP_PORT=$((MONGO_PORT + 1))
+
+MONGO_USER=${MONGO_USER}
+MONGO_PASSWORD=${MONGO_PASSWORD}
+
+if [[ "${MONGO_USER}" != "" && "${MONGO_PASSWORD}" != "" ]]; then
+	MONGO_AUTH_OPTIONS="-u ${MONGO_USER} -p ${MONGO_PASSWORD}"
+fi
+
+MONGO_REPLSET=${MONGO_REPLSET}
+MONGO_ROLE=${MONGO_ROLE}
+
+if [[ "${MONGO_ROLE}" == "primary" ]]; then
+	###
+	# Cleanup initialization member
+	###
+
+	while ! mongo localhost:${MONGO_PORT}/admin ${MONGO_AUTH_OPTIONS} --eval 'printjson({ "hi": "bye" })' &>/dev/null; do
+		echo "Waiting for mongo to come online..."
+		sleep 2
+	done
+	echo " ✓ mongo is running"
+
+	if [[ ! -e /etc/mongo-conf/cleanup.js ]]; then
+		cat <<-INIT > /etc/mongo-conf/cleanup.js
+			cfg = rs.conf();
+			members = cfg.members.length;
+			cfg.members = cfg.members.filter(function (member) { return member.host !== "${HOSTNAME}:${MONGO_SETUP_PORT}" });
+			if (members != cfg.members.length) {
+				rs.reconfig(cfg, { force: true });
+			}
+		INIT
+	fi
+
+	echo "cleaning up mongodb replicaset initialization member..."
+	mongo localhost:${MONGO_PORT}/admin ${MONGO_AUTH_OPTIONS} /etc/mongo-conf/cleanup.js
+	echo " ✓ finished initializing mongodb replica set"
+fi
+
+###
+# Add self to replica set if non-primary node
+###
+
+if [[ "${MONGO_REPLSET}" != "" && "${MONGO_ROLE}" != "primary" ]]; then
+	MONGO_PRIMARY=${MONGO_PRIMARY:?"MONGO_PRIMARY must be set"}
+
+	if [[ "${MONGO_ROLE}" == "arbiter" ]]; then
+		group="arbiters"
+		cmd="addArb"
+	else
+		group="hosts"
+		cmd="add"
+	fi
+
+	primary=$(mongo ${MONGO_AUTH_OPTIONS} ${MONGO_PRIMARY}/admin --quiet --eval "rs.isMaster().primary")
+	added=$(mongo ${primary}/admin ${MONGO_AUTH_OPTIONS} --quiet --eval "rs.isMaster().${group}" | jq -r ".[] | select(. == \"${HOSTNAME}:${MONGO_PORT}\")")
+
+	while [[ "$added" != "${HOSTNAME}:${MONGO_PORT}" ]]; do
+		# find the primary host
+		primary=$(mongo ${MONGO_AUTH_OPTIONS} ${MONGO_PRIMARY}/admin --quiet --eval "rs.isMaster().primary")
+
+		# add self
+		mongo ${primary}/admin ${MONGO_AUTH_OPTIONS} --quiet --eval "rs.${cmd}(\"${HOSTNAME}:${MONGO_PORT}\")"
+		sleep 2
+
+		# verify that self was added to the proper group
+		added=$(mongo ${primary}/admin ${MONGO_AUTH_OPTIONS} --quiet --eval "rs.isMaster().${group}" | jq -r ".[] | select(. == \"${HOSTNAME}:${MONGO_PORT}\")")
+	done
+fi

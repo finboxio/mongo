@@ -1,0 +1,35 @@
+#!/bin/bash
+
+MONGO_ADMIN_USER="$1"
+MONGO_ADMIN_PASSWORD="$2"
+FILE=$3
+BASE=$(echo "$FILE" | xargs basename)
+if (echo "$BASE" | grep '.json.gz$'); then
+  COLLECTION=${BASE%.json.gz}
+  CMD="gzip -dc ${FILE}"
+elif (echo "$BASE" | grep '.json$'); then
+  COLLECTION=${BASE%.json}
+  CMD="cat ${FILE}"
+fi
+
+MONGO_PORT=${MONGO_PORT:-27017}
+MONGO_SETUP_PORT=$((MONGO_PORT + 1))
+
+MONGO_DATABASE=${MONGO_DATABASE:-test}
+
+if [[ "${MONGO_ADMIN_USER}" != " " && "${MONGO_ADMIN_PASSWORD}" != " " ]]; then
+  MONGO_AUTH_OPTIONS="-u ${MONGO_ADMIN_USER} -p ${MONGO_ADMIN_PASSWORD} --authenticationDatabase admin"
+fi
+
+echo "authenticating as $MONGO_AUTH_OPTIONS"
+
+if [[ "$exists" == "" ]]; then
+  ${CMD} | mongoimport \
+    --host localhost \
+    --port ${MONGO_SETUP_PORT} \
+    --db ${MONGO_DATABASE} \
+    --jsonArray \
+    --collection "${COLLECTION}" \
+    --numInsertionWorkers 4 \
+    ${MONGO_AUTH_OPTIONS}
+fi
