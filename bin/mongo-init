@@ -183,7 +183,7 @@ fi
 
 if [[ "${MONGO_PRELOAD_DIR}" != "" && ("${MONGO_ROLE}" == "primary" || "${MONGO_REPLSET}" == "") ]]; then
 	echo "preloading docs from ${MONGO_PRELOAD_DIR}"
-	find ${MONGO_PRELOAD_DIR} -name '*.json' -or -name '*.json.gz' | xargs -n1 mongo-preload "${MONGO_ADMIN_USER:- }" "${MONGO_ADMIN_PASSWORD:- }"
+	find ${MONGO_PRELOAD_DIR} -name '*.json' -or -name '*.json.gz' -or -name '*.js' | xargs -n1 mongo-preload "${MONGO_ADMIN_USER:- }" "${MONGO_ADMIN_PASSWORD:- }"
 fi
 
 ###

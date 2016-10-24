@@ -18,9 +18,8 @@ Maggie
 Dominic" | sort)
 
 names=$(mongo \
-  localhost:27017/preload \
+  localhost:27017/preload --quiet \
   --eval 'db.siblings.find({}).toArray().forEach(function(doc) { print(doc.name) })' \
-  | tail -n +3 \
   | sort)
 
 if [[ "$names" == "$expected" ]]; then
@@ -33,9 +32,8 @@ else
 fi
 
 names=$(mongo \
-  localhost:27017/preload \
+  localhost:27017/preload --quiet \
   --eval 'db["siblings-gz"].find({}).toArray().forEach(function(doc) { print(doc.name) })' \
-  | tail -n +3 \
   | sort)
 
 if [[ "$names" == "$expected" ]]; then
@@ -44,5 +42,18 @@ else
   echo -e "$RED ✘ preload .json.gz files failed to seed $NO_COLOR"
   echo "  expected: $expected"
   echo "  got: $names"
+  exit 1
+fi
+
+expected=$(echo "_id_
+name_1")
+indexes=$(mongo \
+  localhost:27017/preload --quiet \
+  --eval 'db.siblings.getIndexes().forEach(function(index) { print(index.name) })')
+
+if [[ "$indexes" == "$expected" ]]; then
+  echo -e "$GREEN ✓ preload .js script files were run $NO_COLOR"
+else
+  echo -e "$RED ✘ preload .js script files were not run $NO_COLOR"
   exit 1
 fi

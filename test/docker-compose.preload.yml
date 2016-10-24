@@ -11,4 +11,5 @@ services:
     image: busybox
     volumes:
       - ./siblings.json:/preload/json/siblings.json
+      - ./siblings.js:/preload/json/siblings.js
       - ./siblings-gz.json.gz:/preload/gz/siblings-gz.json.gz
