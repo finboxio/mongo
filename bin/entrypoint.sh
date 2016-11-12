@@ -18,12 +18,18 @@ MONGO_REPLSET=${MONGO_REPLSET}
 MONGO_ROLE=${MONGO_ROLE}
 MONGO_KEYFILE=${MONGO_KEYFILE}
 
+MONGO_DROP_DATABASE=${MONGO_DROP_DATABASE}
+
 if [[ "${DEBUG}" == "" ]]; then
   QUIET="--quiet"
 fi
 
 if [[ "$EBS_VOLUME_NAME" != "" ]]; then
   ebs-volume-setup
+fi
+
+if [[ "${MONGO_DROP_DATABASE}" != "" ]]; then
+  rm -rf ${MONGO_DIR}/data
 fi
 
 if [[ ! -e ${MONGO_DIR}/data ]]; then
